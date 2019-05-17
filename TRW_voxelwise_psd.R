@@ -133,7 +133,7 @@ read.ROIS <- function(dir,labels) {
 
 # function to take the mean of mean voxel PSDs across an ROI
 # UGH this is messy
-roi.meanPSD <- function(data,rois) {
+roi.meanPSD <- function(data,rois,df) {
 	fin <- list() # create empty container for results
 	labels <- names(rois)
 	for (rr in 1:length(rois)) {
@@ -144,11 +144,47 @@ roi.meanPSD <- function(data,rois) {
 		int2.rh <- data[['int2']]$rh[,which(rois[[rr]]$rh!=0)]
 		temp <- cbind(int1.lh,int1.rh,int2.lh,int2.rh)
 		fin[[rr]] <- rowMeans(temp)
+		fin[[rr]] <- fin[[rr]]/df
 	}
 	fin <- data.frame(fin[[1]],fin[[2]],fin[[3]],fin[[4]],fin[[5]])
 	names(fin) <- names(rois)
 	return(fin)
 }
+
+# function to compute a bootstrapped mean on the ROI PSD data
+bootPSD <- function(data,rois,nBoot,df) {
+	fin <- list() # create empty container for results
+	dims <- dim(data[[1]][[1]])
+	nSubj <- dims[3] # grab number of subjects from the data
+	labels <- names(rois) # grab ROI names
+	# loop through the ROIs
+	for (rr in 1:length(rois)) {
+		cat(labels[rr],'\n')
+		ROIidx <- list() # container for ROI indices
+		# loop through hemis to grab ROI values
+		for (hh in levels(as.factor(c('lh','rh')))) {
+			ROIidx[[hh]] <- which(rois[[rr]][[hh]]!=0) # find ROI nodes
+		}
+		# run the bootstrap trials
+		bootDat <- matrix(NA,nrow=dims[1], ncol=nBoot)
+		for (bb in 1:nBoot) {
+			SUBidx <- sample(1:nSubj, replace=TRUE) # sample the subjects for this trial
+			int1.lh <- apply(data[['int1']]$lh[,ROIidx[['lh']],SUBidx],c(1,2),mean)
+			int1.rh <- apply(data[['int1']]$rh[,ROIidx[['rh']],SUBidx],c(1,2),mean)
+			int2.lh <- apply(data[['int2']]$lh[,ROIidx[['lh']],SUBidx],c(1,2),mean)
+			int2.rh <- apply(data[['int2']]$rh[,ROIidx[['rh']],SUBidx],c(1,2),mean)
+			temp <- cbind(int1.lh,int1.rh,int2.lh,int2.rh)
+			bootDat[,bb] <- rowMeans(temp)
+			bootDat[,bb] <- bootDat[,bb]/sum(bootDat[,bb])
+		}
+		fin[[rr]] <- apply(bootDat,1,sd)
+		fin[[rr]] <- fin[[rr]]/df
+	}
+	fin <- data.frame(fin)
+	names(fin) <- names(rois)
+	return(fin)
+}
+
 
 ########################### ANALYSIS ###########################
 
@@ -177,8 +213,11 @@ save(a.voxPSD,file=paste0(out,'/a.voxPSD.RData'))
 a.mPSD <- voxel.meanPSD(a.voxPSD)
 save(a.mPSD,file=paste0(out,'/a.mPSD.RData'))
 
-a.roiPSD <- roi.meanPSD(a.mPSD,r)
+a.roiPSD <- roi.meanPSD(a.mPSD,r,0.01)
 save(a.roiPSD,file=paste0(out,'/a.roiPSD.RData'))
+
+a.bootPSD <- bootPSD(a.voxPSD,r,10,0.01)
+save(a.bootPSD,file=paste0(out,'/a.bootPSD.RData'))
 
 
 child <- c('RED_TRW_101', 'RED_TRW_103', 'RED_TRW_112', 'RED_TRW_113', 'RED_TRW_114', 'RED_TRW_115', 'RED_TRW_116', 'RED_TRW_119', 'RED_TRW_137', 'RED_TRW_139', 'RED_TRW_141', 'RED_TRW_150', 'RED_TRW_152', 'RED_TRW_156', 'RED_TRW_173', 'RED_TRW_117', 'RED_TRW_118', 'RED_TRW_120', 'RED_TRW_126', 'RED_TRW_127', 'RED_TRW_128', 'RED_TRW_130', 'RED_TRW_135', 'RED_TRW_140', 'RED_TRW_143', 'RED_TRW_144', 'RED_TRW_148', 'RED_TRW_155', 'RED_TRW_175', 'RED_TRW_177', 'RED_TRW_180')
@@ -195,45 +234,81 @@ save(c.voxPSD,file=paste0(out,'/c.voxPSD.RData'))
 c.mPSD <- voxel.meanPSD(c.voxPSD)
 save(c.mPSD,file=paste0(out,'/c.mPSD.RData'))
 
-c.roiPSD <- roi.meanPSD(c.mPSD,r)
+c.roiPSD <- roi.meanPSD(c.mPSD,r,0.01)
 save(c.roiPSD,file=paste0(out,'/c.roiPSD.RData'))
 
+c.bootPSD <- bootPSD(c.voxPSD,r,10,0.01)
+save(c.bootPSD,file=paste0(out,'/c.bootPSD.RData'))
 
+######################################
 
 load('a.ts.RData')
 load('a.glb.RData')
 load('a.voxPSD.RData')
 load('a.mPSD.RData')
 load('a.roiPSD.RData')
+load('a.bootPSD.RData')
 
 load('c.ts.RData')
 load('c.glb.RData')
 load('c.voxPSD.RData')
 load('c.mPSD.RData')
 load('c.roiPSD.RData')
+load('c.bootPSD.RData')
+ 
 
-w <- welchPSD(ts(a.ts[['int1']]$lh[,1,1]),seglength=100,windowfun=tukeywindow,two.sided=FALSE,r=0.5)
-df <- w$frequency[2]-w$frequency[1]
-a.roiPSD <- apply(a.roiPSD,2,function(x) x/df)
+ # p <- region/sum(region)
 
 ## plot ##
-a.sub <- a.roiPSD[2:34,]
+a.sub <- data.frame(a.roiPSD[2:34,])
 a.sub$freq <- c(0.01,0.02,0.03,0.04,0.05,0.06,0.07,0.08,0.09,0.10,0.11,0.12,0.13,0.14,0.15,0.16,0.17,0.18,0.19,0.20,0.21,0.22,0.23,0.24,0.25,0.26,0.27,0.28,0.29,0.30,0.31,0.32,0.33)
 a.sub$grp <- 'adult'
-ma <- melt(a.sub,id.var=c('freq','grp'))
 
-ggplot(ma, aes(freq,value,color=variable)) + geom_line() + scale_x_continuous(trans='log10')
+a.se <- data.frame(a.bootPSD[2:34,])
+a.se$freq <- c(0.01,0.02,0.03,0.04,0.05,0.06,0.07,0.08,0.09,0.10,0.11,0.12,0.13,0.14,0.15,0.16,0.17,0.18,0.19,0.20,0.21,0.22,0.23,0.24,0.25,0.26,0.27,0.28,0.29,0.30,0.31,0.32,0.33)
+a.se$grp <- 'adult'
+ma.se <- melt(a.se,id.var=c('freq','grp'))
+
+ma <- melt(a.sub,id.var=c('freq','grp'))
+ma$se <- ma.se$value
+
+ggplot(ma, aes(freq,value,group=variable)) + 
+	geom_ribbon(aes(ymin=value-se,ymax=value+se), fill='grey70', color='grey70') +
+	geom_line() + 
+	geom_vline(xintercept = 0.04) +
+	scale_x_continuous(trans='log10',breaks=c(0.01,0.04,0.1,0.33)) +
+	ggtitle('Adult')
 
 
 c.sub <- c.roiPSD[2:34,]
 c.sub$freq <- c(0.01,0.02,0.03,0.04,0.05,0.06,0.07,0.08,0.09,0.10,0.11,0.12,0.13,0.14,0.15,0.16,0.17,0.18,0.19,0.20,0.21,0.22,0.23,0.24,0.25,0.26,0.27,0.28,0.29,0.30,0.31,0.32,0.33)
 c.sub$grp <- 'child'
-mc <- melt(c.sub,id.var=c('freq','grp'))
 
+c.se <- data.frame(c.bootPSD[2:34,])
+c.se$freq <- c(0.01,0.02,0.03,0.04,0.05,0.06,0.07,0.08,0.09,0.10,0.11,0.12,0.13,0.14,0.15,0.16,0.17,0.18,0.19,0.20,0.21,0.22,0.23,0.24,0.25,0.26,0.27,0.28,0.29,0.30,0.31,0.32,0.33)
+c.se$grp <- 'child'
+mc.se <- melt(c.se,id.var=c('freq','grp'))
+
+mc <- melt(c.sub,id.var=c('freq','grp'))
+mc$se <- mc.se$value
+
+
+ggplot(mc, aes(freq,value,color=variable)) + 
+	geom_line() + 
+	geom_ribbon(aes(ymin=value-se,ymax=value+se)) +
+	geom_vline(xintercept = 0.04) +
+	scale_x_continuous(trans='log10',breaks=c(0.01,0.04,0.1,0.33)) +
+	ggtitle('Child')
 
 d <- rbind(ma,mc)
+write.csv(d, 'all.boot.se.csv',row.names=FALSE,quote=FALSE)
 
-ggplot(d, aes(freq,value,color=grp)) + geom_line() + geom_vline(xintercept=0.04) + scale_x_continuous(trans='log10') + facet_wrap(~variable)
+ggplot(d, aes(freq,value,color=grp)) + 
+	geom_line() + 
+	geom_ribbon(aes(ymin=value-se,ymax=value+se)) +
+	geom_vline(xintercept=0.04) + 
+	scale_x_continuous(trans='log10') + 
+	facet_wrap(~variable)
 
 
 
@@ -246,3 +321,18 @@ ggplot(d, aes(freq,value,color=grp)) + geom_line() + geom_vline(xintercept=0.04)
 
 
 # ggplot(ms, aes(freq,value,color=variable)) + geom_line()
+
+
+###############
+
+boot <- read.csv('iCloud/TRW/second_submission/psd_analysis/all.boot.se.csv')
+boot$variable <- factor(boot$variable,levels=c('dmPFC','tpj','precun','aud','vis'))
+
+ggplot(boot, aes(freq,value,fill=grp)) + 
+	geom_ribbon(aes(ymin=value-se,ymax=value+se),alpha=0.75) +
+	geom_line() + 
+	geom_vline(xintercept=0.04) + 
+	scale_x_continuous(trans='log10',breaks=c(0.01,0.04,0.1,0.33)) + 
+	facet_wrap(~variable) +
+	scale_fill_manual(values=c("darkorchid4","darkslategray4"))
+
