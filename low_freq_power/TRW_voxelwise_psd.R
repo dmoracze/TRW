@@ -131,6 +131,28 @@ read.ROIS <- function(dir,labels) {
 	return(fin)
 }
 
+# function to get the average PSD at the subject level across different ROIs
+roi.indPSD <- function(data,rois,df) {
+	labels <- names(rois) # names of ROIs
+	nR <- length(labels) # number of ROIs
+	nf <- dim(data[[1]][[1]])[1] # number of frequency bins
+	nS <- dim(data[[1]][[1]])[3] # number of subjects
+	fin <- array(NA, dim=c(nf,nR,nS)) # output container
+	for (ss in 1:nS) {
+		for (rr in 1:nR) {
+			int1.lh <- data[['int1']]$lh[,which(rois[[rr]]$lh!=0),ss]
+			int1.rh <- data[['int1']]$rh[,which(rois[[rr]]$rh!=0),ss]
+			int2.lh <- data[['int2']]$lh[,which(rois[[rr]]$lh!=0),ss]
+			int2.rh <- data[['int2']]$rh[,which(rois[[rr]]$rh!=0),ss]
+			temp <- cbind(int1.lh,int1.rh,int2.lh,int2.rh)
+			temp <- apply(temp,2,function(x) x/sum(x))
+			temp <- rowMeans(temp)
+			fin[,rr,ss] <- temp
+		}
+	}
+	return(fin)
+}
+
 # function to take the mean of mean voxel PSDs across an ROI
 # UGH this is messy
 roi.meanPSD <- function(data,rois,df) {
@@ -184,6 +206,35 @@ bootPSD <- function(data,rois,nBoot,df) {
 	names(fin) <- names(rois)
 	return(fin)
 }
+
+# # function to calculate the proportion of low-frequency power in different ROIS, given a frequency band
+# lowfreq.prop <- function(data,rois,band) {
+# 	fin <- list() # create empty container for results
+# 	for (cc in levels(as.factor(c('int1','int2')))) {
+# 		cat(cc,'\n')
+# 		hemi <- list() # create empty container for hemi results
+# 		for (hh in levels(as.factor(c('lh','rh')))) {
+# 			cat(' ',hh,'\n')
+# 			vox <- dim(data[[cc]][[hh]])[2] # number of voxels (well, nodes)
+# 			subs <- dim(data[[cc]][[hh]])[3] # number of subjects
+# 			out <- array(NA, dim=c(nP,vox,subs)) # output container
+# 			# for each voxel (SOO SLOW, you can do better...)
+# 			for (vv in 1:vox) {
+# 				# for each subject
+# 				for (ss in 1:subs) {
+# 					temp <- ts(data[[cc]][[hh]][,vv,ss]) # turn voxel's data into timeseries object
+# 					# find the power spectrum
+# 					out[,vv,ss] <- welchPSD(temp,seglength=win,windowfun=tukeywindow,two.sided=FALSE,r=olap)$power
+# 				}
+# 			}
+# 			hemi[[hh]] <- out
+# 		}
+# 		fin[[cc]] <- hemi
+# 	}
+# 	return(fin)
+
+
+# }
 
 
 ########################### ANALYSIS ###########################
@@ -335,4 +386,10 @@ ggplot(boot, aes(freq,value,fill=grp)) +
 	scale_x_continuous(trans='log10',breaks=c(0.01,0.04,0.1,0.33)) + 
 	facet_wrap(~variable) +
 	scale_fill_manual(values=c("darkorchid4","darkslategray4"))
+
+
+
+########### proportion analysis
+
+f <- seq(0,0.5,0.01)
 
