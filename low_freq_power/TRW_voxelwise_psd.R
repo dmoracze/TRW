@@ -147,9 +147,23 @@ roi.indPSD <- function(data,rois,df) {
 			temp <- cbind(int1.lh,int1.rh,int2.lh,int2.rh)
 			temp <- apply(temp,2,function(x) x/sum(x))
 			temp <- rowMeans(temp)
-			fin[,rr,ss] <- temp
+			fin[,rr,ss] <- temp/df
 		}
 	}
+	return(fin)
+}
+
+# function calculate proportion of PSD in a frequency band
+roi.band.indPSD <- function(data,rois,df,band) {
+	labels <- names(rois)
+	# find the indices of the frequency band
+	f <- seq(0,0.5,df)
+	f.min <- which(f==band[1])
+	f.max <- which(f==band[2])
+	temp <- data[f.min:f.max,,]
+	temp <- apply(temp,c(2,3),sum)
+	fin <- data.frame(t(temp))
+	names(fin) <- labels
 	return(fin)
 }
 
@@ -207,35 +221,6 @@ bootPSD <- function(data,rois,nBoot,df) {
 	return(fin)
 }
 
-# # function to calculate the proportion of low-frequency power in different ROIS, given a frequency band
-# lowfreq.prop <- function(data,rois,band) {
-# 	fin <- list() # create empty container for results
-# 	for (cc in levels(as.factor(c('int1','int2')))) {
-# 		cat(cc,'\n')
-# 		hemi <- list() # create empty container for hemi results
-# 		for (hh in levels(as.factor(c('lh','rh')))) {
-# 			cat(' ',hh,'\n')
-# 			vox <- dim(data[[cc]][[hh]])[2] # number of voxels (well, nodes)
-# 			subs <- dim(data[[cc]][[hh]])[3] # number of subjects
-# 			out <- array(NA, dim=c(nP,vox,subs)) # output container
-# 			# for each voxel (SOO SLOW, you can do better...)
-# 			for (vv in 1:vox) {
-# 				# for each subject
-# 				for (ss in 1:subs) {
-# 					temp <- ts(data[[cc]][[hh]][,vv,ss]) # turn voxel's data into timeseries object
-# 					# find the power spectrum
-# 					out[,vv,ss] <- welchPSD(temp,seglength=win,windowfun=tukeywindow,two.sided=FALSE,r=olap)$power
-# 				}
-# 			}
-# 			hemi[[hh]] <- out
-# 		}
-# 		fin[[cc]] <- hemi
-# 	}
-# 	return(fin)
-
-
-# }
-
 
 ########################### ANALYSIS ###########################
 
@@ -264,6 +249,12 @@ save(a.voxPSD,file=paste0(out,'/a.voxPSD.RData'))
 a.mPSD <- voxel.meanPSD(a.voxPSD)
 save(a.mPSD,file=paste0(out,'/a.mPSD.RData'))
 
+a.roi.indPSD <- roi.indPSD(a.voxPSD,r,0.01)
+save(a.roi.indPSD,file=paste0(out,'/a.roi.indPSD.RData'))
+
+a.roi.bandPSD <- roi.band.indPSD(a.roi.indPSD,r,0.01,c(0.01,0.04))
+save(a.roi.bandPSD,file=paste0(out,'/a.roi.bandPSD.RData'))
+
 a.roiPSD <- roi.meanPSD(a.mPSD,r,0.01)
 save(a.roiPSD,file=paste0(out,'/a.roiPSD.RData'))
 
@@ -285,6 +276,12 @@ save(c.voxPSD,file=paste0(out,'/c.voxPSD.RData'))
 c.mPSD <- voxel.meanPSD(c.voxPSD)
 save(c.mPSD,file=paste0(out,'/c.mPSD.RData'))
 
+c.roi.indPSD <- roi.indPSD(c.voxPSD,r,0.01)
+save(c.roi.indPSD,file=paste0(out,'/c.roi.indPSD.RData'))
+
+c.roi.bandPSD <- roi.band.indPSD(c.roi.indPSD,r,0.01,c(0.01,0.04))
+save(c.roi.bandPSD,file=paste0(out,'/c.roi.bandPSD.RData'))
+
 c.roiPSD <- roi.meanPSD(c.mPSD,r,0.01)
 save(c.roiPSD,file=paste0(out,'/c.roiPSD.RData'))
 
@@ -297,6 +294,8 @@ load('a.ts.RData')
 load('a.glb.RData')
 load('a.voxPSD.RData')
 load('a.mPSD.RData')
+load('a.roi.indPSD')
+load('a.roi.bandPSD')
 load('a.roiPSD.RData')
 load('a.bootPSD.RData')
 
@@ -304,6 +303,8 @@ load('c.ts.RData')
 load('c.glb.RData')
 load('c.voxPSD.RData')
 load('c.mPSD.RData')
+load('c.roi.indPSD')
+load('c.roi.bandPSD')
 load('c.roiPSD.RData')
 load('c.bootPSD.RData')
  
@@ -390,6 +391,37 @@ ggplot(boot, aes(freq,value,fill=grp)) +
 
 
 ########### proportion analysis
+library(lme4)
+a.band <- a.roi.bandPSD
+a.band$group <- 'adult'
+a.band$subj <- adult
 
-f <- seq(0,0.5,0.01)
+c.band <- c.roi.bandPSD
+c.band$group <- 'child'
+c.band$subj <- child
+
+both <- rbind(a.band,c.band)
+m <- melt(both,id.vars=c('subj','group'))
+names(m) <- c('subj','group','roi','alpha')
+m <- subset(m,m$roi!='vis')
+
+ggplot(m,aes(group,alpha,color=roi)) + geom_point() + facet_wrap(~roi)
+
+
+m.adult <- subset(m,m$group=='adult')
+pairwise.t.test(m.adult$alpha,m.adult$roi,p.adjust='bonferroni')
+
+m.child <- subset(m,m$group=='child')
+pairwise.t.test(m.child$alpha,m.child$roi,p.adjust='bonferroni')
+
+# group comparisons
+tpj <- subset(m,m$roi=='tpj')
+t.test(alpha~group,data=tpj)
+
+dmpfc <- subset(m,m$roi=='dmPFC')
+t.test(alpha~group,data=dmpfc)
+
+precun <- subset(m,m$roi=='precun')
+t.test(alpha~group,data=precun)
+
 
