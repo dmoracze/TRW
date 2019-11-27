@@ -17,6 +17,8 @@ dat <- subset(dat,dat$include==1)
 
 # read sample info
 samp <- read.csv('/Volumes/research$/redcay/DSCN lab/Experiments/TRW/data/TRW_sample_summary.csv',header=TRUE)
+samp <- read.table('~/iCloud/TRW/first_submission/TRW_sample_summary.txt',header=TRUE)
+samp$order <- as.factor(samp$order)
 samp <- subset(samp,samp$allTRW==1 & samp$include_other==1 & samp$out==1)
 
 # merge
